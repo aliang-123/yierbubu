@@ -49,7 +49,8 @@ def main():
     # 仅在系统提供托盘时创建；无托盘环境（如部分无桌面会话）则退回仅右键菜单操作。
     tray = None
     if QSystemTrayIcon.isSystemTrayAvailable():
-        tray = SystemTray(pet, sheet)
+        tray = SystemTray(pet)
+        pet._tray = tray
         # 托盘存在时，最后一个窗口关闭不应退出程序（标准托盘常驻模式），
         # 退出统一由菜单「退出」触发 QApplication.quit。
         app.setQuitOnLastWindowClosed(False)

@@ -6,41 +6,37 @@
   - 左键单击：显示 / 隐藏宠物（隐藏后仍有托盘可恢复，不会“丢宠物”）。
   - 右键单击：弹出与宠物右键菜单完全一致的应用菜单（形象 / 跟随 / 自启动 /
     提醒子菜单 / 自定义提醒条件 / 退出）。
-  - 每次弹出菜单都重建，保证勾选状态（跟随、自启动、形象等）实时反映最新值。
+  - 托盘图标从当前“布布”形象中随机取一帧生成，每次启动 / 换装都可能不同。
   - 打开菜单期间复用 PetWindow 的 _popup_open 守卫，避免移动 owner 工具窗触发原生崩溃。
 """
-import os
-import sys
-
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon, QCursor
 from PyQt6.QtWidgets import QSystemTrayIcon
 
-from . import pet_window
-from .states import PetState
-
-
-def _icon_from_sheet(sheet) -> QIcon:
-    """用经典待机首帧生成托盘图标（宠物的标志性形象）。"""
-    frames = sheet.frames_for(PetState.Idle) if sheet is not None else []
-    if not frames:
-        return QIcon()
-    pm = pet_window.pil_to_pixmap(frames[0])
-    pm = pm.scaled(
-        32, 32,
-        Qt.AspectRatioMode.KeepAspectRatio,
-        Qt.TransformationMode.SmoothTransformation)
-    return QIcon(pm)
-
 
 class SystemTray:
-    def __init__(self, pet, sheet):
+    def __init__(self, pet):
         self._pet = pet
         self._icon = QSystemTrayIcon()
-        self._icon.setIcon(_icon_from_sheet(sheet))
+        self._icon.setIcon(self._make_icon())
         self._icon.setToolTip("一二布布桌面宠物\n左键：显示/隐藏　右键：菜单")
         self._icon.activated.connect(self._on_activated)
         self._icon.show()
+
+    def _make_icon(self) -> QIcon:
+        """用当前形象随机一帧生成托盘图标。"""
+        pm = self._pet.random_icon_pixmap()
+        if pm.isNull():
+            return QIcon()
+        pm = pm.scaled(
+            32, 32,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
+        return QIcon(pm)
+
+    def refresh_icon(self):
+        """换装后刷新托盘图标（从新形象随机取一帧）。"""
+        self._icon.setIcon(self._make_icon())
 
     def _on_activated(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:

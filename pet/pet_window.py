@@ -356,6 +356,34 @@ class PetWindow(QWidget):
             self._pack = None
             self._set_state(PetState.Idle)
         UserSettings.set_saved_style(self._style)
+        # 切换形象后刷新托盘图标（若已创建），使托盘图标跟随当前“布布”形象。
+        tray = getattr(self, "_tray", None)
+        if tray is not None:
+            tray.refresh_icon()
+
+    # ---------------- 托盘图标 ----------------
+    def random_icon_pixmap(self) -> "QPixmap":
+        """随机取当前形象的一帧，生成适合做系统托盘图标的 QPixmap。
+
+        用于右下角托盘图标：从一个“布布”形象帧中随机挑选，使托盘图标有辨识度，
+        且每次启动 / 换装都可能是不同的一帧。
+        """
+        if self._style.is_sticker() and self._pack is not None:
+            st = self._pack.random_sticker_any_of(self._context_tags()) \
+                or self._pack.random_sticker_any_of(["idle"])
+            if st is not None:
+                frames = st.load_frames()
+                if frames:
+                    return self._pixmap_for(random.choice(frames), False)
+        # 经典形象：每个动作状态各取一帧后再随机，保证各状态权重均衡、不偏 idle。
+        candidates = []
+        for stt in PetState.all():
+            frs = self._sheet.frames_for(stt)
+            if frs:
+                candidates.append(random.choice(frs))
+        if candidates:
+            return self._pixmap_for(random.choice(candidates), False)
+        return QPixmap()
 
     # ---------------- 自主行为 ----------------
     def _schedule_behavior(self):
