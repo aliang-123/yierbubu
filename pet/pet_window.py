@@ -365,14 +365,24 @@ class PetWindow(QWidget):
         self._behavior_timer.start()
 
     def _on_behavior_tick(self):
-        self._perform_random_behavior()
+        # 防御：单个行为 tick 抛异常时绝不能中断自调度定时器，否则行为定时器会
+        # “死掉”，此后宠物再也不会自主漫步/做随机动作（表现为关闭鼠标跟随后
+        # 宠物永远静止）。这里吞掉异常并始终重新排期，保证行为循环长活。
+        try:
+            self._perform_random_behavior()
+        except Exception:
+            pass
         self._schedule_behavior()
 
     def _perform_random_behavior(self):
         if not self._random_behavior or self._throwing or self._follow_enabled or self._popup_open:
             return
         idle = self._reminder_center._monitor.idle_seconds()
-        if idle >= 30 * 60:
+        # 防御：若无法获取空闲时长（如 Windows 输入 API 不可用时 idle_seconds()
+        # 返回 inf 等非有限值），绝不能据此把宠物判为“离开”而长期禁止自主漫步——
+        # 否则一旦输入 API 不可用，关闭鼠标跟随后宠物将永远静止。仅在“确知已离开
+        # 足够久（idle 有限且 >= 30 分钟）”时才进入等待态。
+        if math.isfinite(idle) and idle >= 30 * 60:
             self._was_away = True
             return
         if self._was_away:
@@ -712,6 +722,13 @@ class PetWindow(QWidget):
                 self._set_state(PetState.Idle)
             else:
                 self._sticker_idle()
+            # 关闭跟随后立即让行为定时器排期一次自主行为，使宠物尽快恢复漫步/
+            # 随机动作，而不是最多干等 7~15 秒。try 包裹防止单次异常中断行为循环。
+            try:
+                self._perform_random_behavior()
+            except Exception:
+                pass
+            self._schedule_behavior()
 
     def _stop_follow(self):
         if self._follow_enabled:
