@@ -17,6 +17,11 @@ from .reminders import ReminderKind
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        # 关键修复：宠物窗口是 Qt.Tool（工具窗），此类窗口在部分平台/打包环境下不计入
+        # “保持程序存活”的窗口。对话框作为其唯一的、带 Qt.Window 标志的子窗口，
+        # 一旦关闭（点 OK 或右上角 X）会被判定为“最后一个窗口关闭”而直接退出整个程序。
+        # 显式关闭 WA_QuitOnClose，确保关闭对话框绝不会退出应用，只关闭对话框本身。
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.setWindowTitle("一二布布 · 自定义提醒条件")
         self.setMinimumWidth(420)
         # 限高：对话框内容较多（约 28 项条件 + 分组），在小屏上会超出屏幕，
