@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QTabWidget, QWidget, QFormLayout, QSpinBox,
     QDoubleSpinBox, QCheckBox, QDialogButtonBox, QLabel, QGroupBox,
+    QApplication, QScrollArea,
 )
 
 from .config import UserSettings, Conditions
@@ -18,6 +19,12 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("一二布布 · 自定义提醒条件")
         self.setMinimumWidth(420)
+        # 限高：对话框内容较多（约 28 项条件 + 分组），在小屏上会超出屏幕，
+        # 导致底部「确定/取消」按钮或最后几项点不到。把窗口高度夹取到可视区内，
+        # 超高时由标签页内的 QScrollArea 滚动而非裁切。
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            self.setMaximumHeight(max(320, screen.availableGeometry().height() - 40))
         self._c = UserSettings.conditions()
         self._widgets = {}
         self._rem_toggles = {}
@@ -39,10 +46,31 @@ class SettingsDialog(QDialog):
             self._restore)
         layout.addWidget(buttons)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 确保对话框完整落在屏幕可视区内：宠物常驻屏幕底部，对话框默认居中会偏下，
+        # 叠加限高后若仍超高/偏出，这里把整体夹回可视区，保证「确定/取消」始终可达。
+        screen = QApplication.screenAt(self.geometry().center()) or QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            r = self.geometry()
+            if r.bottom() > geo.bottom():
+                r.moveBottom(geo.bottom())
+            if r.top() < geo.top():
+                r.moveTop(geo.top())
+            if r.right() > geo.right():
+                r.moveRight(geo.right())
+            if r.left() < geo.left():
+                r.moveLeft(geo.left())
+            self.setGeometry(r)
+
     # ---------------- 条件页 ----------------
     def _build_conditions_tab(self):
-        widget = QWidget()
-        form = QFormLayout(widget)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        form = QFormLayout(content)
         c = self._c
 
         # 健康类
@@ -88,7 +116,8 @@ class SettingsDialog(QDialog):
             ("walk_speed", "自主散步速度", "float2", 0.2, 8.0),
             ("follow_speed", "鼠标跟随速度", "float2", 0.5, 12.0),
         ])
-        return widget
+        scroll.setWidget(content)
+        return scroll
 
     def _group(self, form, title, fields):
         box = QGroupBox(title)
@@ -114,8 +143,11 @@ class SettingsDialog(QDialog):
 
     # ---------------- 开关页 ----------------
     def _build_toggles_tab(self):
-        widget = QWidget()
-        form = QFormLayout(widget)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        form = QFormLayout(content)
         for kind in ReminderKind.all():
             cb = QCheckBox(kind.title())
             cb.setChecked(UserSettings.reminder_enabled(kind))
@@ -125,7 +157,8 @@ class SettingsDialog(QDialog):
         note.setWordWrap(True)
         note.setStyleSheet("color: #666; font-size: 11px;")
         form.addRow(note)
-        return widget
+        scroll.setWidget(content)
+        return scroll
 
     # ---------------- 保存 ----------------
     def _accept(self):

@@ -921,7 +921,26 @@ class PetWindow(QWidget):
         menu.addSeparator()
         quit_act = menu.addAction("退出")
         quit_act.triggered.connect(QApplication.quit)
-        menu.exec(event.globalPos())
+
+        # 让菜单始终落在当前屏幕可视区域内：宠物常驻屏幕底部，右键时光标贴近底边，
+        # 默认向下弹出会把「退出」等底部项挤出屏幕外、点不到。这里显式计算位置：
+        # 先尝试光标下方；放不下则翻到光标上方；极小屏仍放不下则夹取到屏幕内，
+        # 由 QMenu 自身的滚动箭头兜底，保证「退出」永远可达。
+        pos = event.globalPos()
+        screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            menu.adjustSize()
+            sh = menu.sizeHint()
+            x = pos.x()
+            y = pos.y()
+            if x + sh.width() > geo.right():
+                x = max(geo.left(), geo.right() - sh.width())
+            if y + sh.height() > geo.bottom():
+                y2 = y - sh.height()
+                y = y2 if y2 >= geo.top() else max(geo.top(), geo.bottom() - sh.height())
+            pos = QPoint(x, y)
+        menu.exec(pos)
         menu.deleteLater()
 
         # 菜单关闭后，恢复跟随（若原先开启）。
