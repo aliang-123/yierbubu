@@ -20,6 +20,7 @@ from .config import UserSettings
 from .states import PetState
 from .styles import PetStyle
 from .speech import SpeechBubble
+from . import autostart
 
 
 # 显示盒子尺寸（与原版 PetWidth/Height 一致，帧按统一比例缩放）
@@ -873,19 +874,17 @@ class PetWindow(QWidget):
         if st is not None:
             self._play_sticker(st, loops)
 
-    # ---------------- 右键菜单 ----------------
-    def contextMenuEvent(self, event):
-        # 打开右键菜单期间，停止一切会“移动本窗口”的定时器，并标记 _popup_open。
-        # 原因：本窗口是置顶无边框工具窗(Qt.Tool)，若在其弹出菜单仍打开时移动
-        # owner 窗口（跟随/散步/抛掷定时器触发），Windows 的 TrackPopupMenu 与
-        # SetWindowPos 交互会触发原生崩溃 0xC0000409。
-        self._popup_open = True
-        self._follow_timer.stop()
-        self._stop_walk()
-        self._stop_throw()
+    # ---------------- 应用主菜单（右键菜单与托盘菜单共用） ----------------
+    def _build_app_menu(self):
+        """构建应用主菜单：形象 / 动作 / 随机行为 / 鼠标跟随 / 开机自启动 /
+        提醒子菜单 / 自定义提醒条件 / 退出。右键菜单与系统托盘菜单均复用它，
+        保证两边行为一致。每次调用都重建，因此勾选状态（跟随、自启动、形象等）
+        始终反映最新值。
+        """
+        from .reminders import ReminderKind
 
-        # 菜单不挂到置顶工具窗上，作为独立顶层弹出菜单，规避 owner 样式导致的原生崩溃。
         menu = QMenu()
+
         style_menu = menu.addMenu("形象")
         for s in PetStyle.all():
             act = style_menu.addAction(s.display_name())
@@ -917,7 +916,13 @@ class PetWindow(QWidget):
         follow_act.triggered.connect(
             lambda _: self.set_follow_enabled(not self._follow_enabled))
 
-        from .reminders import (ReminderKind, ReminderCenter)
+        # 开机自启动：写入/删除 Windows 注册表 Run 项；非 Windows 自动降级为不可用。
+        auto_act = menu.addAction("开机自启动")
+        auto_act.setCheckable(True)
+        auto_act.setChecked(autostart.is_enabled())
+        auto_act.triggered.connect(
+            lambda _: autostart.set_enabled(not autostart.is_enabled()))
+
         menu.addMenu(self._build_reminder_submenu(
             menu, "提醒设置", ReminderKind.health_cases()))
         menu.addMenu(self._build_reminder_submenu(
@@ -938,6 +943,21 @@ class PetWindow(QWidget):
         menu.addSeparator()
         quit_act = menu.addAction("退出")
         quit_act.triggered.connect(QApplication.quit)
+
+        return menu
+
+    def contextMenuEvent(self, event):
+        # 打开右键菜单期间，停止一切会“移动本窗口”的定时器，并标记 _popup_open。
+        # 原因：本窗口是置顶无边框工具窗(Qt.Tool)，若在其弹出菜单仍打开时移动
+        # owner 窗口（跟随/散步/抛掷定时器触发），Windows 的 TrackPopupMenu 与
+        # SetWindowPos 交互会触发原生崩溃 0xC0000409。
+        self._popup_open = True
+        self._follow_timer.stop()
+        self._stop_walk()
+        self._stop_throw()
+
+        # 菜单不挂到置顶工具窗上，作为独立顶层弹出菜单，规避 owner 样式导致的原生崩溃。
+        menu = self._build_app_menu()
 
         # 让菜单始终落在当前屏幕可视区域内：宠物常驻屏幕底部，右键时光标贴近底边，
         # 默认向下弹出会把「退出」等底部项挤出屏幕外、点不到。这里显式计算位置：
