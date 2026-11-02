@@ -7,6 +7,7 @@
 """
 import json
 import os
+import time
 from typing import Any
 
 from .states import PetState
@@ -64,6 +65,9 @@ class Conditions:
 
 class UserSettings:
     _path = None
+    _conditions_cache = None
+    _conditions_cache_at = 0.0
+    _CACHE_TTL = 2.0  # 条件字典缓存有效期（秒），避免每帧读盘 + json 解析
 
     @classmethod
     def path(cls) -> str:
@@ -89,6 +93,7 @@ class UserSettings:
 
     @classmethod
     def _save(cls, data: dict):
+        cls._conditions_cache = None  # 任何写盘都令条件缓存失效
         try:
             with open(cls.path(), "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
@@ -138,7 +143,11 @@ class UserSettings:
     # ---------- 自定义条件（优化 3）----------
     @classmethod
     def conditions(cls) -> dict:
-        """返回合并了默认值的完整条件字典。"""
+        """返回合并了默认值的完整条件字典（带 2s TTL 缓存，避免每帧读盘）。"""
+        now = time.monotonic()
+        if cls._conditions_cache is not None and \
+                (now - cls._conditions_cache_at) < cls._CACHE_TTL:
+            return cls._conditions_cache
         data = cls._load()
         merged = Conditions().defaults_dict()
         merged.update(data.get("conditions", {}) or {})
@@ -151,6 +160,8 @@ class UserSettings:
                     merged[k] = type(default)(merged[k])
                 except (TypeError, ValueError):
                     merged[k] = default
+        cls._conditions_cache = merged
+        cls._conditions_cache_at = now
         return merged
 
     @classmethod

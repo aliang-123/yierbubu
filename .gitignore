@@ -14,3 +14,8 @@ env/
 # misc
 *.log
 .DS_Store
+
+# PyInstaller 构建产物
+dist/
+build/
+*.spec

@@ -181,3 +181,7 @@ class ActivityMonitor:
         if key not in SLACK_PROCESS_NAMES:
             return 0.0
         return time.time() - self._front_since
+
+    def idle_seconds(self) -> float:
+        """距上次用户输入的秒数（委托给模块级实现）。"""
+        return idle_seconds()

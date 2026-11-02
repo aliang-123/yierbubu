@@ -17,6 +17,13 @@ from pet.systemmon import SystemMonitor
 
 
 def main():
+    # 早期安装崩溃诊断（捕获原生崩溃故障模块），便于排查 0xC0000409 等问题
+    try:
+        from pet.crash_report import install as install_crash_report
+        install_crash_report()
+    except Exception:
+        pass
+
     app = QApplication(sys.argv)
     app.setApplicationName("一二布布桌面宠物")
 

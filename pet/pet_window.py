@@ -6,6 +6,8 @@
 """
 import math
 import random
+import time
+from collections import OrderedDict
 from datetime import datetime
 from enum import Enum
 
@@ -75,7 +77,8 @@ class PetWindow(QWidget):
         self._sticker_loops = 0
         self._current_sticker_id = None
         self._flip = False
-        self._pixmap_cache: dict = {}
+        # LRU 缓存（上限保护）：贴纸帧众多（917 帧），限制条目避免原生位图内存无限增长
+        self._pixmap_cache = OrderedDict()
 
         self._behavior_timer = QTimer(self)
         self._behavior_timer.timeout.connect(self._on_behavior_tick)
@@ -115,6 +118,10 @@ class PetWindow(QWidget):
         self._drag_target = QPoint()
         self._drag_move_timer = QTimer(self)
         self._drag_move_timer.timeout.connect(self._apply_drag_move)
+        # 拖拽进行中标志：拖拽期间冻结气泡跟随与红温叠加，避免第二个分层窗口
+        # （气泡）与红温层在拖动时一起打 UpdateLayeredWindow，叠加成原生层风暴。
+        self._is_dragging = False
+        self._last_bubble_sync = 0.0
 
         self._build_ui()
         self._apply_style(UserSettings.saved_style())
@@ -140,19 +147,16 @@ class PetWindow(QWidget):
         self._label.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
-        self._heat_label = QLabel(self)
-        self._heat_label.setGeometry(0, 0, PET_WIDTH, PET_HEIGHT)
-        self._heat_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._heat_label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self._heat_label.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._heat_label.setPixmap(QPixmap())
-        self._heat_label.setStyleSheet("background: transparent;")
-
         self._bubble = SpeechBubble(self)
 
     def moveEvent(self, event):
-        self._bubble.sync_position()
+        # 拖拽期间不跟随气泡（去掉第二个分层窗口的 60fps UpdateLayeredWindow）；
+        # 非拖拽时也限频到 ~30fps，降低气泡分层窗口压力。
+        if not self._is_dragging:
+            now = time.monotonic()
+            if now - self._last_bubble_sync >= 0.033:
+                self._bubble.sync_position()
+                self._last_bubble_sync = now
         super().moveEvent(event)
 
     # ---------------- 工具 ----------------
@@ -168,23 +172,37 @@ class PetWindow(QWidget):
         key = (getattr(film, "_key", id(film)), flip)
         cached = self._pixmap_cache.get(key)
         if cached is not None:
+            self._pixmap_cache.move_to_end(key)
             return cached
         pm = pil_to_pixmap(film)
         if flip:
             pm = pm.transformed(QTransform().scale(-1, 1))
+        # 直接缩放到显示尺寸并缓存：既消除每帧 scaled() 的 QPixmap 原生位图分配抖动
+        # （这是快速拖拽时原生层被打爆、随后切换形象/打开菜单才爆发 0xC0000409 的元凶之一），
+        # 也降低整体显存占用（显示尺寸远小于原帧）。
+        pm = pm.scaled(
+            PET_WIDTH, PET_HEIGHT,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
         self._pixmap_cache[key] = pm
+        # LRU 上限保护：贴纸帧众多，限制缓存条目避免原生位图内存无限增长
+        while len(self._pixmap_cache) > 600:
+            self._pixmap_cache.popitem(last=False)
         return pm
 
     def _show_pixmap(self, pm: QPixmap):
-        self._label.setPixmap(pm.scaled(
-            PET_WIDTH, PET_HEIGHT,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation))
+        # pm 已是显示尺寸（见 _pixmap_for）。
+        # 红温叠加（heat>0）直接合成到主图层再设置，彻底去掉第二个半透明子控件
+        # （嵌套分层窗口）每帧打 setPixmap 造成的 GDI/桌面堆累积损坏——
+        # 这正是“运行约 30~60 秒后静默崩溃 0xC0000409”的根因：提醒中心每 30s 采样
+        # CPU，一旦 >60% 即开启红温叠加，此后每帧重绘叠加层，约 30~60s 后触发原生崩溃。
         if self._heat > 0:
-            self._update_heat_overlay(pm)
+            pm = self._tinted(pm)
+        self._label.setPixmap(pm)
 
-    def _update_heat_overlay(self, pm: QPixmap):
-        # 复用同一张 Pixmap，避免每帧新建；只在状态切换时 show/raise。
+    def _tinted(self, pm: QPixmap) -> QPixmap:
+        # 复用同一张缓冲 Pixmap 避免每帧新建；返回其独立副本给 QLabel，
+        # 防止复用缓冲与 QLabel 共享同一位图后在写时复制上产生竞争。
         if self._heat_pixmap is None or self._heat_pixmap.size() != pm.size():
             self._heat_pixmap = QPixmap(pm.size())
         res = self._heat_pixmap
@@ -195,17 +213,19 @@ class PetWindow(QWidget):
         p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
         p.fillRect(res.rect(), QColor(255, 0, 0, int(self._heat * 0.5 * 255)))
         p.end()
-        self._heat_label.setPixmap(res.scaled(
-            PET_WIDTH, PET_HEIGHT,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation))
-        if not self._heat_label.isVisible():
-            self._heat_label.show()
-            self._heat_label.raise_()
+        return QPixmap(res)
 
-    def _hide_heat(self):
-        self._heat_label.setPixmap(QPixmap())
-        self._heat_label.hide()
+    def _redraw_current(self):
+        # 用当前已显示的帧重新走一遍 _show_pixmap，使红温叠加/取消立即生效，
+        # 不再依赖独立的半透明子控件。
+        if self._style.is_sticker() and self._sticker_frames:
+            film = self._sticker_frames[
+                (self._frame_index - 1) % len(self._sticker_frames)]
+        elif self._frames:
+            film = self._frames[(self._frame_index - 1) % len(self._frames)]
+        else:
+            return
+        self._show_pixmap(self._pixmap_for(film, self._flip))
 
     # ---------------- 动画 ----------------
     def _set_state(self, state: PetState, loops: int = 0):
@@ -315,6 +335,10 @@ class PetWindow(QWidget):
         self._frames = []
         self._sticker_frames = []
         self._current_sticker_id = None
+        # 切换形象时释放上一个形象的 QPixmap 缓存与红温层，避免经典/贴纸缓存长期共存
+        # 撑大原生位图内存（也是在「切换形象」时避免触发 0xC0000409 的防御之一）。
+        self._pixmap_cache.clear()
+        self._heat_pixmap = None
 
         if style.is_sticker():
             lib = sprites.PackLibrary(style)
@@ -469,6 +493,7 @@ class PetWindow(QWidget):
     # ---------------- 鼠标拖拽 / 抛掷 ----------------
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            self._is_dragging = True  # 冻结气泡跟随/红温叠加，去掉第二个分层窗口风暴
             self._dragged = False
             self._drag_samples.clear()
             self._last_mouse = event.globalPosition().toPoint()
@@ -503,6 +528,8 @@ class PetWindow(QWidget):
             self._dragged = False
             self._drag_samples.clear()
             self._drag_move_timer.stop()
+            self._is_dragging = False  # 恢复气泡跟随与红温叠加
+            self._bubble.sync_position()  # 拖拽结束后让气泡立即贴合新位置
         super().mouseReleaseEvent(event)
 
     def _handle_drag(self, dx: float):
@@ -756,18 +783,9 @@ class PetWindow(QWidget):
 
     def heat_changed(self, level: float):
         self._heat = max(0.0, min(1.0, level))
-        if self._heat <= 0.001:
-            self._hide_heat()
-        else:
-            # 重新叠加到当前帧
-            if self._style.is_sticker() and self._sticker_frames:
-                film = self._sticker_frames[
-                    (self._frame_index - 1) % len(self._sticker_frames)]
-            elif self._frames:
-                film = self._frames[(self._frame_index - 1) % len(self._frames)]
-            else:
-                return
-            self._update_heat_overlay(self._pixmap_for(film, self._flip))
+        # 红温叠加已合成进主图层（见 _show_pixmap / _tinted），这里只触发一次
+        # 当前帧重绘，让叠加/取消立即生效；不需要单独的半透明子控件。
+        self._redraw_current()
 
     def sleepy_changed(self, sleepy: bool):
         self._sleepy = sleepy

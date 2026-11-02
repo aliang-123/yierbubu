@@ -7,6 +7,7 @@
 """
 import json
 import os
+import sys
 from typing import Dict, List, Optional
 
 from PIL import Image
@@ -22,7 +23,18 @@ ROWS = 9
 
 
 def _asset_dir() -> str:
-    # 资源相对可执行入口的 Assets 目录；同时兼容开发态
+    # 1) PyInstaller 打包态：数据目录位于 sys._MEIPASS（onedir 模式下即 _internal）。
+    #    优先用官方约定路径，避免依赖被虚拟化的 __file__ 相对解析。
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+        cand = os.path.join(base, "Assets")
+        if os.path.isdir(cand):
+            return os.path.abspath(cand)
+        # 部分旧版布局会把数据放在 exe 同级目录
+        cand2 = os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "Assets")
+        if os.path.isdir(cand2):
+            return os.path.abspath(cand2)
+    # 2) 开发态 / 源码运行：相对模块与当前工作目录回退
     here = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(here, "..", "Assets"),
