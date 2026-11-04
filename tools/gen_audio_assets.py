@@ -1,17 +1,16 @@
-"""生成「一二布布桌面宠物」的角色 / 心情短音频素材。
+"""生成「一二布布桌面宠物」的“心情 / 状态”短音频素材（合成）。
 
-为什么是合成而非下载：
-  - 一二布布的角色语音多为原作者版权内容，粉丝项目的打包音频并无明确的再分发许可，
-    直接打包进 exe 存在法律与可用性问题；
-  - 本脚本仅用 Python 标准库（wave / struct / math）合成，零外部依赖、可离线复现、
-    许可清晰，且每个角色拥有可辨识的独立动机（音色 / 音高 / 走向不同）；
-  - AudioManager 支持把真实 .wav 直接丢进 Assets/Audio/ 同名覆盖即可替换，无需改代码。
+注意（2026-11-04 更新）：
+  - 角色音频（classic/yier/bubu/duo）已改用粉丝项目 sduwcdd/YierPet-Windows 打包的真实
+    一二 / 布布 语音（content/voice/reminders/*.wav），由用户确认处理好转载 / 许可事宜。
+    因此本脚本**只负责再生“心情 / 状态”合成音效**（仓库无对应真实素材），且刻意不再生成
+    角色文件，以免运行本脚本时覆盖掉真实语音。
+  - 真实角色语音与合成心情音效均由 AudioManager 按文件名加载：
+      Assets/Audio/<角色>.wav         —— 来自粉丝项目（真实语音）
+      Assets/Audio/mood_<心情>.wav    —— 由本脚本合成
+  - 若日后要把心情也换成真实素材，直接把同名文件放进 Assets/Audio/ 覆盖即可，无需改代码。
 
-输出：Assets/Audio/<角色>.wav 与 Assets/Audio/mood_<心情>.wav
-  - classic 经典一二：温暖中音，两音轻柔
-  - yier    活力一二：明亮高音，上行三音（俏皮）
-  - bubu    活力布布：柔和低音，下行两音（温吞）
-  - duo     一二布布：跨音区琶音（合体）
+输出：Assets/Audio/mood_<心情>.wav
   - mood_angry  生气：短促低沉方波下行（“哼”）
   - mood_happy  开心：明亮上行三音
   - mood_love   喜欢：柔和两音
@@ -95,25 +94,8 @@ def write_wav(name, pcm):
 
 def main():
     motifs = {
-        # 角色：温暖 / 明亮 / 柔和 / 合体
-        "classic.wav": [
-            (523.25, 0.00, 0.18, 0.50, "sine", SINE_SOFT),
-            (659.25, 0.16, 0.32, 0.45, "sine", SINE_SOFT),
-        ],
-        "yier.wav": [
-            (783.99, 0.00, 0.12, 0.50, "sine", SINE_SOFT),
-            (1046.50, 0.10, 0.12, 0.50, "sine", SINE_SOFT),
-            (1318.51, 0.20, 0.34, 0.45, "sine", SINE_SOFT),
-        ],
-        "bubu.wav": [
-            (440.00, 0.00, 0.20, 0.50, "sine", SINE_SOFT),
-            (349.23, 0.18, 0.36, 0.42, "sine", SINE_SOFT),
-        ],
-        "duo.wav": [
-            (523.25, 0.00, 0.14, 0.45, "sine", SINE_SOFT),
-            (659.25, 0.12, 0.14, 0.45, "sine", SINE_SOFT),
-            (392.00, 0.24, 0.32, 0.42, "sine", SINE_SOFT),
-        ],
+        # 角色音频（classic/yier/bubu/duo）已改为粉丝项目真实语音，本脚本不再生成，
+        # 以免覆盖。仅生成“心情 / 状态”合成音效（仓库无对应真实素材）。
         # 心情：生气 / 开心 / 喜欢 / 难过
         "mood_angry.wav": [
             (220.00, 0.00, 0.10, 0.55, "square", None),
