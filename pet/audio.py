@@ -1,17 +1,25 @@
 """音频管理器：为「一二布布桌面宠物」增加音效。
 
+资源布局（按角色分目录，方便随时往里加音频）：
+  Assets/Audio/
+    <角色>/                 # 角色目录：classic / yier / bubu / duo
+      <任意名>.wav/.mp3/... # 该角色的音效列表（多个则随机播放，避免连续重复）
+      mood_<心情>.<ext>     # 该角色专属“状态/心情”音效（如 mood_angry.wav）
+    mood_<心情>.wav         # 全局心情音效兜底（合成），仅当对应角色目录没有时回落使用
+
 功能（对应需求）：
   - 支持开启 / 关闭（set_enabled / is_enabled），持久化到 UserSettings（audio.enabled）。
-  - 按展示角色播放对应音频（play_character）：每次切换形象（含启动、菜单换装）即播放。
-  - 按心情 / 状态播放音频（play_mood，可选增强）：例如生气 → 生气音效。
-  - 资源优先使用 Assets/Audio/<name>.wav；若用户日后放入真实角色语音同名覆盖即可替换，
-    无需改动任何代码。
+  - 按展示角色播放对应音频（play_character）：每次切换形象（含启动、菜单换装）从该角色目录
+    随机取一个文件播放；目录为空时回落到旧式单文件 Assets/Audio/<角色>.wav。
+  - 按心情 / 状态播放音频（play_mood，可选增强）：优先播放“当前角色目录”下的
+    mood_<心情>.*，找不到则回落到全局 Assets/Audio/mood_<心情>.wav。
   - 安全降级：无音频设备 / offscreen / QtMultimedia 缺失时全部静默失败，绝不抛异常或崩溃。
 
-实现：基于 PyQt6.QtMultimedia.QSoundEffect（低延迟短音效，支持音量与静音），
-每个音频文件懒加载并缓存一个 QSoundEffect 实例，重复播放时 restart。
+实现：基于 PyQt6.QtMultimedia.QSoundEffect（低延迟短音效，支持音量与静音）；每个音频文件
+懒加载并缓存一个 QSoundEffect 实例，重复播放时 restart。
 """
 import os
+import random
 import sys
 
 # QtMultimedia 在某些精简 / 无音频后端的环境下可能不可用；做防御性导入，
@@ -27,6 +35,9 @@ except Exception:  # pragma: no cover
 
 from .config import UserSettings
 from .styles import PetStyle
+
+# 支持的音频扩展名（WAV 最稳；MP3/OGG 等依赖平台解码器，Windows 下通常可用）。
+AUDIO_EXTS = (".wav", ".mp3", ".ogg", ".oga", ".m4a", ".flac", ".aac")
 
 
 def audio_dir() -> str:
@@ -51,12 +62,51 @@ def audio_dir() -> str:
     return os.path.abspath(candidates[0])
 
 
+def _character_dir(style: PetStyle) -> str:
+    return os.path.join(audio_dir(), style.raw())
+
+
+def _list_clips(directory: str, prefix: str = "", exclude_prefix: str = "") -> list:
+    """列出 directory 下满足 prefix 前缀（且不以 exclude_prefix 开头）与音频扩展名的文件。
+
+    prefix / exclude_prefix 大小写不敏感；排序返回，保证可复现。
+    """
+    if not os.path.isdir(directory):
+        return []
+    out = []
+    for name in os.listdir(directory):
+        low = name.lower()
+        if not low.endswith(AUDIO_EXTS):
+            continue
+        if prefix and not low.startswith(prefix):
+            continue
+        if exclude_prefix and low.startswith(exclude_prefix):
+            continue
+        out.append(os.path.join(directory, name))
+    return sorted(out)
+
+
+def _list_character_clips(style: PetStyle) -> list:
+    """角色音效列表：该角色目录下所有音频，排除 mood_ 前缀的状态音效。"""
+    return _list_clips(_character_dir(style), prefix="", exclude_prefix="mood_")
+
+
+def _list_mood_clips(style: PetStyle, mood) -> list:
+    """某角色的状态/心情音效列表：该角色目录下 mood_<心情> 前缀的音频。"""
+    name = getattr(mood, "name", None)
+    if not name:
+        return []
+    return _list_clips(_character_dir(style), prefix=f"mood_{name.lower()}")
+
+
 class AudioManager:
     def __init__(self, volume: float = 0.7):
         # 默认开启音效；仅当显式存为 False / "0" / 0 时关闭
         self._enabled = UserSettings.get("audio.enabled", True) not in (False, "0", 0)
         self._volume = volume
         self._effects: dict = {}  # 绝对路径 -> QSoundEffect
+        self._current_style: PetStyle = None  # 当前展示角色（play_mood 用）
+        self._last_picked: dict = {}  # key -> 上次播放路径，避免连续重复
 
     # ---------- 开关 ----------
     def is_enabled(self) -> bool:
@@ -94,7 +144,7 @@ class AudioManager:
         except Exception:
             return None
 
-    def _play_file(self, path: str):
+    def _play_path(self, path: str):
         if not self._enabled or not path:
             return
         try:
@@ -108,18 +158,58 @@ class AudioManager:
             # 无音频设备 / 后端错误等一律吞掉，避免影响主循环
             pass
 
+    @staticmethod
+    def _pick(candidates: list, key: str, last_picked: dict):
+        """从候选中随机取一个，尽量不与上一个相同（列表>1 时）。"""
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0]
+        prev = last_picked.get(key)
+        choices = [c for c in candidates if c != prev] or candidates
+        pick = random.choice(choices)
+        last_picked[key] = pick
+        return pick
+
     # ---------- 对外播放接口 ----------
     def play_character(self, style: PetStyle):
-        """按展示角色播放对应音频（满足“根据角色播放”，含启动与换装）。"""
+        """按展示角色播放对应音频（满足“根据角色播放”，含启动与换装）。
+
+        优先播放该角色目录下的音频列表（随机不重复）；目录为空时回落到旧式单文件。
+        """
         if not self._enabled:
             return
-        self._play_file(os.path.join(audio_dir(), f"{style.raw()}.wav"))
+        self._current_style = style
+        clips = _list_character_clips(style)
+        if not clips:
+            # 兼容旧布局：Assets/Audio/<角色>.wav
+            single = os.path.join(audio_dir(), f"{style.raw()}.wav")
+            if os.path.exists(single):
+                self._play_path(single)
+            return
+        pick = self._pick(clips, style.raw(), self._last_picked)
+        if pick:
+            self._play_path(pick)
 
     def play_mood(self, mood):
-        """按心情 / 状态播放对应音频（可选增强，例如生气 → 生气音效）。"""
+        """按心情 / 状态播放对应音频（可选增强）。
+
+        优先播放“当前角色目录”下的 mood_<心情>.*；若该角色未提供，则回落到全局
+        Assets/Audio/mood_<心情>.wav（合成兜底），保证状态音效始终可用。
+        """
         if not self._enabled:
             return
-        name = getattr(mood, "name", None)
-        if not name:
+        clips = []
+        if self._current_style is not None:
+            clips = _list_mood_clips(self._current_style, mood)
+        if not clips:
+            name = getattr(mood, "name", None)
+            if name:
+                g = os.path.join(audio_dir(), f"mood_{name.lower()}.wav")
+                if os.path.exists(g):
+                    self._play_path(g)
             return
-        self._play_file(os.path.join(audio_dir(), f"mood_{name.lower()}.wav"))
+        key = f"{self._current_style.raw()}:mood:{getattr(mood, 'name', '').lower()}"
+        pick = self._pick(clips, key, self._last_picked)
+        if pick:
+            self._play_path(pick)

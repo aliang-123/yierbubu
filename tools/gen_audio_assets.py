@@ -10,11 +10,17 @@
       Assets/Audio/mood_<心情>.wav    —— 由本脚本合成
   - 若日后要把心情也换成真实素材，直接把同名文件放进 Assets/Audio/ 覆盖即可，无需改代码。
 
-输出：Assets/Audio/mood_<心情>.wav
+输出：Assets/Audio/mood_<心情>.wav（全局心情音效兜底；若某角色目录
+      Assets/Audio/<角色>/ 下已有同名 mood_<心情>.*，则优先用角色专属的）。
   - mood_angry  生气：短促低沉方波下行（“哼”）
   - mood_happy  开心：明亮上行三音
   - mood_love   喜欢：柔和两音
   - mood_sad    难过：低音缓慢下行
+
+目录式资源布局（便于扩展）：
+  Assets/Audio/<角色>/    放该角色多个音效（任意名），播放时随机取一个；
+                         也可放 mood_<心情>.* 作为该角色专属状态音效。
+  往目录里直接加 .wav/.mp3 等音频文件即可被自动纳入，无需改代码。
 """
 import math
 import os
