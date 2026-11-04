@@ -36,7 +36,7 @@ WALL_BOUNCE = 0.6
 
 # 陪伴感：自主行为循环中“自发说一句”的概率（定时随机播放）。
 # 自主行为每 7~15 秒触发一次，故平均约几十秒会说一次；可调大/调小。
-AMBIENT_AUDIO_PROB = 0.2
+AMBIENT_AUDIO_PROB = 0.5
 
 
 class Mood(Enum):
