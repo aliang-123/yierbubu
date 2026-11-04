@@ -21,6 +21,7 @@ from .states import PetState
 from .styles import PetStyle
 from .speech import SpeechBubble
 from . import autostart
+from .audio import AudioManager
 
 
 # 显示盒子尺寸（与原版 PetWidth/Height 一致，帧按统一比例缩放）
@@ -125,6 +126,8 @@ class PetWindow(QWidget):
         self._last_bubble_sync = 0.0
 
         self._build_ui()
+        # 音频管理器：按角色 / 心情播放音效，支持开关（默认开启，持久化）。
+        self._audio = AudioManager()
         self._apply_style(UserSettings.saved_style())
         self._schedule_behavior()
 
@@ -360,6 +363,12 @@ class PetWindow(QWidget):
         tray = getattr(self, "_tray", None)
         if tray is not None:
             tray.refresh_icon()
+        # 按“展示的角色”播放对应音频（满足需求：根据角色播放对应音频）。
+        # 启动与菜单换装都会走到这里；无音频设备 / 关闭音效时内部安全降级。
+        try:
+            self._audio.play_character(self._style)
+        except Exception:
+            pass
 
     # ---------------- 托盘图标 ----------------
     def random_icon_pixmap(self) -> "QPixmap":
@@ -426,7 +435,7 @@ class PetWindow(QWidget):
 
         if (datetime.now() - self._last_interaction).total_seconds() >= 30 * 60 and \
                 self._mood == Mood.Normal:
-            self._mood = Mood.Sad
+            self._set_mood(Mood.Sad)
 
         if self._style.is_sticker():
             if self._current_sticker_id is not None:
@@ -649,7 +658,7 @@ class PetWindow(QWidget):
                 self._play_once(PetState.Failed)
             self.say("哼！还在生气呢！")
         else:
-            self._mood = Mood.Happy
+            self._set_mood(Mood.Happy)
             self.say("你终于来陪我啦！")
             if self._style.is_sticker():
                 st = self._pack.random_sticker_any_of(["happy", "love"])
@@ -719,7 +728,7 @@ class PetWindow(QWidget):
     def _finish_throw(self):
         self._stop_throw()
         if self._max_impact > 1600:
-            self._mood = Mood.Angry
+            self._set_mood(Mood.Angry)
             self.say("请轻拿轻放！")
             if self._style.is_sticker():
                 st = self._pack.random_sticker_any_of(["angry", "sad"])
@@ -821,6 +830,12 @@ class PetWindow(QWidget):
         return self._mood
 
     def _set_mood(self, m: Mood):
+        if m != self._mood:
+            # 按“心情 / 状态”播放对应音频（可选增强，例如生气 → 生气音效）。
+            try:
+                self._audio.play_mood(m)
+            except Exception:
+                pass
         self._mood = m
         self._mood_set_at = datetime.now()
 
@@ -943,6 +958,13 @@ class PetWindow(QWidget):
             "关闭鼠标跟随" if self._follow_enabled else "开启鼠标跟随")
         follow_act.triggered.connect(
             lambda _: self.set_follow_enabled(not self._follow_enabled))
+
+        # 音效开关：按角色 / 心情播放对应音频的总开关，持久化到 settings.json。
+        audio_act = menu.addAction("音效")
+        audio_act.setCheckable(True)
+        audio_act.setChecked(self._audio.is_enabled())
+        audio_act.triggered.connect(
+            lambda _: self._audio.set_enabled(not self._audio.is_enabled()))
 
         # 开机自启动：写入/删除 Windows 注册表 Run 项；非 Windows 自动降级为不可用。
         auto_act = menu.addAction("开机自启动")
