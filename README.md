@@ -65,6 +65,22 @@ python main.py
 - 另设「提醒开关」页，可单独开关 14 种提醒。
 - 所有修改写入 `settings.json`，提醒中心下次判定即生效；支持「恢复默认」。
 
+## 其它新增功能（音效 / 托盘 / 自启动 / 陪伴）
+
+### 音效系统（可开关）
+- 按**展示角色**播放对应语音（启动与右键/托盘菜单换装时自动播放）；
+- 按**情绪状态**播放音效（生气 / 开心 / 难过），且按角色分开；
+- **定时随机播放**：宠物偶尔自发说一句，更有陪伴感；
+- 角色语音取自粉丝项目打包的真实一二/布布 语音；往 `Assets/Audio/<角色>/` 目录里
+  添加更多 `.wav/.mp3` 即可扩充，无需改代码；情绪音效同理放 `mood_<心情>.*`；
+- 右键菜单 / 托盘菜单「音效」总开关控制一切（关闭即全静音）。
+
+### 系统托盘 + 开机自启动
+- 右下角系统托盘图标：左键显示/隐藏宠物，右键弹出与宠物右键一致的主菜单；
+- 右键菜单新增「开机自启动」（写入 Windows 注册表 Run 项，非 Windows 自动降级）。
+
+> 源码详见 `pet/audio.py`、`pet/tray.py`、`pet/autostart.py`。
+
 ## 项目结构
 
 ```
@@ -82,7 +98,10 @@ yierbubu/
     ├── reminders.py         # 提醒中心（14 种提醒 + 判定逻辑）
     ├── speech.py            # 头顶气泡窗口
     ├── pet_window.py        # 主窗口：动画/拖拽/抛掷/自主行为/三项优化/菜单
-    └── settings_dialog.py   # 自定义提醒条件对话框
+    ├── settings_dialog.py   # 自定义提醒条件对话框
+    ├── audio.py             # 音效系统（QSoundEffect：按角色/情绪播放，可开关）
+    ├── tray.py              # 系统托盘（右下角，显示/隐藏 + 菜单）
+    └── autostart.py         # 开机自启动（Windows 注册表 Run 项）
 ```
 
 ## 与原版差异（实现层）
@@ -93,3 +112,15 @@ yierbubu/
 - 系统指标：WMI/PerformanceCounter → psutil（跨平台，Windows 重点支持）。
 - 输入空闲/前台进程：仍走 `user32` 的 `GetLastInputInfo` / `GetForegroundWindow`。
 - 新增第 1、2、3 项优化（见上）。
+
+## 下载（Windows 预编译，小白专用）
+
+不想装 Python 环境的同学，可直接下载已打包好的 **Windows 64 位** 压缩包，解压后双击
+`yierbubu.exe` 即可运行（绿色免安装，无需安装 Python）。
+
+- 下载地址：<https://gitee.com/duan-zebing/yierbubu/raw/master/yierbubu-win.zip>
+- 解压后目录里的 `yierbubu.exe` 即主程序；首次运行若被系统/杀软误报，请允许或加白名单。
+- 设置保存在 `%AppData%/YierBubu/settings.json`；卸载直接删除解压目录即可。
+
+> 源码运行方式见上方「运行环境」。如需自行重新打包，仓库内含 `yierbubu.spec`，
+> 执行 `pyinstaller yierbubu.spec --noconfirm --clean` 即可（需先 `pip install pyinstaller`）。
