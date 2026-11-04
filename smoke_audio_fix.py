@@ -111,6 +111,11 @@ def main():
         pet._apply_style(st)
     print("PASS: PetWindow 构造与 _apply_style 换装音频挂钩安全（无崩溃）")
 
+    # 8) 自主行为循环（含新增的定时随机播放）多次调用不崩溃
+    for _ in range(120):
+        pet._perform_random_behavior()
+    print("PASS: _perform_random_behavior（含定时随机播放音效）多次调用无异常")
+
     print("\nALL AUDIO SMOKE TESTS PASSED")
 
 

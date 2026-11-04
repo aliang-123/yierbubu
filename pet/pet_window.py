@@ -34,6 +34,10 @@ GRAVITY = 3000               # px/s^2
 FLOOR_BOUNCE = 0.45
 WALL_BOUNCE = 0.6
 
+# 陪伴感：自主行为循环中“自发说一句”的概率（定时随机播放）。
+# 自主行为每 7~15 秒触发一次，故平均约几十秒会说一次；可调大/调小。
+AMBIENT_AUDIO_PROB = 0.2
+
 
 class Mood(Enum):
     Normal = 0
@@ -436,6 +440,15 @@ class PetWindow(QWidget):
         if (datetime.now() - self._last_interaction).total_seconds() >= 30 * 60 and \
                 self._mood == Mood.Normal:
             self._set_mood(Mood.Sad)
+
+        # 陪伴感：偶尔自发说一句（定时随机播放），让宠物更像在陪你。
+        # 复用自主行为循环（每 7~15 秒一次），低概率播放当前角色语音；
+        # 跟随 / 抛掷 / 菜单打开时已在函数顶部 return，不会打扰。
+        if random.random() < AMBIENT_AUDIO_PROB:
+            try:
+                self._audio.play_character(self._style)
+            except Exception:
+                pass
 
         if self._style.is_sticker():
             if self._current_sticker_id is not None:
