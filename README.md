@@ -119,7 +119,8 @@ yierbubu/
 `yierbubu.exe` 即可运行（绿色免安装，无需安装 Python）。
 
 - 下载地址：<https://gitee.com/duan-zebing/yierbubu/raw/master/yierbubu-win.zip>
-  （Gitee 对大于 50MB 的文件要求先登录账号才能下载；登录后点击即可正常下载，压缩包约 76MB）
+  （Gitee 对大于 50MB 的文件要求先登录账号才能下载；登录后点击即可正常下载，压缩包约 97MB，
+  已包含四个角色目录式真实语音共 128 条原声 + 4 条全局情绪兜底）
 - 解压后目录里的 `yierbubu.exe` 即主程序；首次运行若被系统/杀软误报，请允许或加白名单。
 - 设置保存在 `%AppData%/YierBubu/settings.json`；卸载直接删除解压目录即可。
 
