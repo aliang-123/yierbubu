@@ -18,4 +18,6 @@ env/
 # PyInstaller 构建产物
 dist/
 build/
+dist_pkg/
+build_pkg/
 *.spec
